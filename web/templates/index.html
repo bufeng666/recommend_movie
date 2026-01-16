@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>电影推荐系统</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body { padding-top: 20px; background-color: #f8f9fa; }
+        .card { margin-bottom: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .movie-item { cursor: pointer; padding: 5px; border-bottom: 1px solid #eee; }
+        .movie-item:hover { background-color: #f0f0f0; }
+        #selected-movies .badge { margin-right: 5px; font-size: 0.9em; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1 class="text-center mb-4">🎬 智能电影推荐系统</h1>
+        
+        <div class="row">
+            <!-- Left Column: Existing User -->
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header bg-primary text-white">
+                        模式一：现有用户推荐
+                    </div>
+                    <div class="card-body">
+                        <div class="mb-3">
+                            <label for="userId" class="form-label">输入用户 ID (0-9560):</label>
+                            <div class="input-group">
+                                <input type="number" class="form-control" id="userId" placeholder="例如: 10">
+                                <button class="btn btn-primary" onclick="getExistingRecommendation()">获取推荐</button>
+                            </div>
+                        </div>
+                        
+                        <div id="existing-history" class="mb-3" style="display:none;">
+                            <h6>📺 历史高分记录:</h6>
+                            <ul class="list-group list-group-flush small" id="history-list"></ul>
+                        </div>
+                        
+                        <div id="existing-results" style="display:none;">
+                            <h6>✨ 推荐结果:</h6>
+                            <ul class="list-group" id="existing-rec-list"></ul>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right Column: Cold Start -->
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header bg-success text-white">
+                        模式二：冷启动推荐 (新用户)
+                    </div>
+                    <div class="card-body">
+                        <p class="small text-muted">搜索并添加几部你喜欢的电影，系统将为你生成画像。</p>
+                        
+                        <div class="mb-3">
+                            <input type="text" class="form-control" id="movieSearch" placeholder="搜索电影 (英文名)..." onkeyup="searchMovies()">
+                            <div id="searchResults" class="border mt-1 bg-white" style="max-height: 200px; overflow-y: auto; display:none;"></div>
+                        </div>
+
+                        <div id="selected-movies" class="mb-3">
+                            <!-- Selected movies will appear here -->
+                        </div>
+
+                        <button class="btn btn-success w-100" onclick="getColdStartRecommendation()">生成个性化推荐</button>
+                        
+                        <div id="cold-results" class="mt-3" style="display:none;">
+                            <h6>✨ 推荐结果:</h6>
+                            <ul class="list-group" id="cold-rec-list"></ul>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // Existing User Logic
+        async function getExistingRecommendation() {
+            const userId = document.getElementById('userId').value;
+            if (!userId) return;
+
+            const formData = new FormData();
+            formData.append('user_id', userId);
+
+            try {
+                const response = await fetch('/recommend_existing', {
+                    method: 'POST',
+                    body: formData
+                });
+                const data = await response.json();
+                
+                if (data.error) {
+                    alert(data.error);
+                    return;
+                }
+
+                // Show History
+                const historyList = document.getElementById('history-list');
+                historyList.innerHTML = '';
+                if (data.history.length > 0) {
+                    data.history.forEach(item => {
+                        historyList.innerHTML += `<li class="list-group-item py-1">${item.title} <span class="badge bg-secondary float-end">${item.rating}</span></li>`;
+                    });
+                    document.getElementById('existing-history').style.display = 'block';
+                } else {
+                    document.getElementById('existing-history').style.display = 'none';
+                }
+
+                // Show Recommendations
+                const recList = document.getElementById('existing-rec-list');
+                recList.innerHTML = '';
+                data.recommendations.forEach((item, index) => {
+                    recList.innerHTML += `<li class="list-group-item d-flex justify-content-between align-items-center">
+                        ${index + 1}. ${item.title}
+                        <span class="badge bg-primary rounded-pill">${item.score}</span>
+                    </li>`;
+                });
+                document.getElementById('existing-results').style.display = 'block';
+
+            } catch (e) {
+                console.error(e);
+                alert('请求失败');
+            }
+        }
+
+        // Cold Start Logic
+        let selectedMovies = [];
+        let searchTimeout = null;
+
+        function searchMovies() {
+            clearTimeout(searchTimeout);
+            const query = document.getElementById('movieSearch').value;
+            if (query.length < 2) {
+                document.getElementById('searchResults').style.display = 'none';
+                return;
+            }
+
+            searchTimeout = setTimeout(async () => {
+                const response = await fetch(`/search_movie?query=${encodeURIComponent(query)}`);
+                const movies = await response.json();
+                
+                const resultsDiv = document.getElementById('searchResults');
+                resultsDiv.innerHTML = '';
+                
+                if (movies.length > 0) {
+                    movies.forEach(movie => {
+                        const div = document.createElement('div');
+                        div.className = 'movie-item';
+                        div.textContent = `${movie.title} (${movie.genres})`;
+                        div.onclick = () => addMovie(movie);
+                        resultsDiv.appendChild(div);
+                    });
+                    resultsDiv.style.display = 'block';
+                } else {
+                    resultsDiv.style.display = 'none';
+                }
+            }, 300);
+        }
+
+        function addMovie(movie) {
+            if (selectedMovies.find(m => m.movie_idx === movie.id)) return;
+            
+            const rating = prompt(`请为 "${movie.title}" 评分 (0.5 - 5.0):`, "5.0");
+            if (!rating || isNaN(rating) || rating < 0.5 || rating > 5.0) return;
+
+            selectedMovies.push({ movie_idx: movie.id, rating: rating, title: movie.title });
+            renderSelectedMovies();
+            document.getElementById('movieSearch').value = '';
+            document.getElementById('searchResults').style.display = 'none';
+        }
+
+        function renderSelectedMovies() {
+            const container = document.getElementById('selected-movies');
+            container.innerHTML = '';
+            selectedMovies.forEach((m, index) => {
+                const span = document.createElement('span');
+                span.className = 'badge bg-info text-dark p-2 mb-1';
+                span.innerHTML = `${m.title} (${m.rating}) <span style="cursor:pointer; margin-left:5px;" onclick="removeMovie(${index})">&times;</span>`;
+                container.appendChild(span);
+            });
+        }
+
+        function removeMovie(index) {
+            selectedMovies.splice(index, 1);
+            renderSelectedMovies();
+        }
+
+        async function getColdStartRecommendation() {
+            if (selectedMovies.length === 0) {
+                alert('请先添加至少一部电影！');
+                return;
+            }
+
+            try {
+                const response = await fetch('/recommend_cold_start', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ ratings: selectedMovies })
+                });
+                const data = await response.json();
+                
+                if (data.error) {
+                    alert(data.error);
+                    return;
+                }
+
+                const recList = document.getElementById('cold-rec-list');
+                recList.innerHTML = '';
+                data.recommendations.forEach((item, index) => {
+                    recList.innerHTML += `<li class="list-group-item d-flex justify-content-between align-items-center">
+                        ${index + 1}. ${item.title}
+                        <span class="badge bg-success rounded-pill">${item.score}</span>
+                    </li>`;
+                });
+                document.getElementById('cold-results').style.display = 'block';
+
+            } catch (e) {
+                console.error(e);
+                alert('请求失败');
+            }
+        }
+    </script>
+</body>
+</html>
